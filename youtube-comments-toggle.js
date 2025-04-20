@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 댓글 토글 (개선 버전)
 // @namespace    https://github.com/Lucille-dolce
-// @version      1.2.1
+// @version      1.2.2
 // @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
 // @author       Lucille
 // @match        https://www.youtube.com/*
@@ -60,6 +60,13 @@
         if (typeof GM_setValue === 'function') {
             GM_setValue('buttonPosition', JSON.stringify(buttonPosition));
         }
+    }
+    
+    // 안전한 HTML 생성 함수 (Trusted Type 오류 방지)
+    function createSafeHTML(html) {
+        const template = document.createElement('template');
+        template.innerHTML = html;
+        return template.content.cloneNode(true);
     }
     
     // 댓글 아이콘 SVG (간단한 버블 형태)
@@ -158,13 +165,19 @@
             if (commentsHidden) {
                 commentsSection.style.display = 'block';
                 if (button) {
-                    button.innerHTML = commentIconSVG + ' <span>댓글 숨기기</span>';
+                    const commentIcon = createSafeHTML(commentIconSVG);
+                    button.innerHTML = '';
+                    button.appendChild(commentIcon);
+                    button.appendChild(document.createTextNode(' 댓글 숨기기'));
                 }
                 commentsHidden = false;
             } else {
                 commentsSection.style.display = 'none';
                 if (button) {
-                    button.innerHTML = commentIconSVG + ' <span>댓글 표시</span>';
+                    const commentIcon = createSafeHTML(commentIconSVG);
+                    button.innerHTML = '';
+                    button.appendChild(commentIcon);
+                    button.appendChild(document.createTextNode(' 댓글 표시'));
                 }
                 commentsHidden = true;
             }
@@ -180,7 +193,10 @@
             // 버튼 텍스트 업데이트
             const button = document.getElementById('toggle-comments-button');
             if (button) {
-                button.innerHTML = commentIconSVG + ' <span>댓글 표시</span>';
+                const commentIcon = createSafeHTML(commentIconSVG);
+                button.innerHTML = '';
+                button.appendChild(commentIcon);
+                button.appendChild(document.createTextNode(' 댓글 표시'));
             }
             return true;
         }
@@ -202,27 +218,17 @@
         }
     }
     
-    // URL 변경 감지 함수
+    // URL 변경 감지 및 처리
     function checkForUrlChange() {
-        if (currentUrl !== window.location.href) {
-            currentUrl = window.location.href;
-            
-            // 동영상 페이지인지 확인
-            if (currentUrl.includes('/watch')) {
-                // 초기화 상태 리셋
+        const newUrl = window.location.href;
+        if (currentUrl !== newUrl) {
+            currentUrl = newUrl;
+            // 동영상 페이지 진입 시
+            if (newUrl.includes('/watch')) {
                 initialized = false;
-                // 댓글 숨기기 재시도
-                attempts = 0;
-                // 약간의 지연 후 초기화 시도
-                setTimeout(initOnVideoPage, 500);
-                
-                // 버튼 표시
-                const container = document.getElementById('yt-comments-toggle-container');
-                if (container) {
-                    container.style.display = 'flex';
-                }
+                initOnVideoPage();
             } else {
-                // 동영상 페이지가 아니면 버튼 숨기기
+                // 동영상 페이지 이탈 시
                 const container = document.getElementById('yt-comments-toggle-container');
                 if (container) {
                     container.style.display = 'none';
@@ -231,7 +237,7 @@
         }
     }
     
-    // 비디오 페이지 초기화 함수
+    // 동영상 페이지에서 초기화
     function initOnVideoPage() {
         if (initialized) return;
         
@@ -250,7 +256,10 @@
             
             const button = document.getElementById('toggle-comments-button');
             if (button) {
-                button.innerHTML = commentIconSVG + ' <span>댓글 표시</span>';
+                const commentIcon = createSafeHTML(commentIconSVG);
+                button.innerHTML = '';
+                button.appendChild(commentIcon);
+                button.appendChild(document.createTextNode(' 댓글 표시'));
             }
         }
         
@@ -345,11 +354,21 @@
         setupYoutubeEvents();
     }
     
+    // 초기화 함수 실행 - DOM 로드 완료 후
+    function initializeScript() {
+        try {
+            init();
+            console.log('YouTube 댓글 토글 스크립트 초기화 완료');
+        } catch (error) {
+            console.error('초기화 중 오류가 발생했습니다:', error);
+        }
+    }
+    
     // DOM이 로드되면 초기화
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', initializeScript);
     } else {
-        init();
+        initializeScript();
     }
     
     // 페이지가 완전히 로드된 후에도 초기화 (일부 요소가 지연 로딩될 수 있음)
@@ -386,7 +405,14 @@
         // 메인 토글 버튼 생성
         const button = document.createElement('button');
         button.id = 'toggle-comments-button';
-        button.innerHTML = commentIconSVG + ' <span>댓글 표시</span>';
+        button.name = 'toggle-comments-button';
+        button.setAttribute('aria-label', '댓글 토글 버튼');
+        
+        // 안전한 방식으로 버튼 내용 설정
+        const commentIcon = createSafeHTML(commentIconSVG);
+        button.appendChild(commentIcon);
+        button.appendChild(document.createTextNode(' 댓글 표시'));
+        
         button.style.display = 'flex';
         button.style.alignItems = 'center';
         button.style.justifyContent = 'center';
@@ -419,7 +445,11 @@
         // 드래그 핸들 생성
         const dragHandle = document.createElement('div');
         dragHandle.id = 'yt-comments-drag-handle';
-        dragHandle.innerHTML = dragIconSVG;
+        dragHandle.setAttribute('aria-label', '버튼 위치 드래그');
+        
+        const dragIcon = createSafeHTML(dragIconSVG);
+        dragHandle.appendChild(dragIcon);
+        
         dragHandle.style.position = 'absolute';
         dragHandle.style.top = '-18px';
         dragHandle.style.right = '10px';
@@ -463,7 +493,11 @@
         // 설정 버튼 생성
         const settingsButton = document.createElement('div');
         settingsButton.id = 'yt-comments-settings-button';
-        settingsButton.innerHTML = settingsIconSVG;
+        settingsButton.setAttribute('aria-label', '설정 버튼');
+        
+        const settingsIcon = createSafeHTML(settingsIconSVG);
+        settingsButton.appendChild(settingsIcon);
+        
         settingsButton.style.position = 'absolute';
         settingsButton.style.top = '-18px';
         settingsButton.style.left = '10px';
@@ -526,81 +560,100 @@
         panel.style.border = '1px solid rgba(255, 255, 255, 0.1)';
         
         // 제목 추가
-        const title = document.createElement('div');
-        title.textContent = '버튼 위치 설정';
+        const title = document.createElement('h3');
+        title.textContent = '설정';
+        title.style.margin = '0 0 10px 0';
+        title.style.fontSize = '14px';
         title.style.fontWeight = 'bold';
-        title.style.marginBottom = '10px';
-        title.style.borderBottom = '1px solid rgba(255, 255, 255, 0.1)';
-        title.style.paddingBottom = '6px';
-        
+        title.style.color = '#FFFFFF';
         panel.appendChild(title);
         
-        // 위치 버튼 그리드 생성
-        const posGrid = document.createElement('div');
-        posGrid.style.display = 'grid';
-        posGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
-        posGrid.style.gridTemplateRows = 'repeat(3, 1fr)';
-        posGrid.style.gap = '6px';
+        // 설정 항목 컨테이너
+        const settingsContainer = document.createElement('div');
+        settingsContainer.style.display = 'flex';
+        settingsContainer.style.flexDirection = 'column';
+        settingsContainer.style.gap = '10px';
         
-        // 위치 옵션 설정
-        const positions = [
-            { id: 'top-left', label: '↖️', top: '20px', left: '20px', right: null, bottom: null },
-            { id: 'top-center', label: '⬆️', top: '20px', left: '50%', right: null, bottom: null, transform: 'translateX(-50%)' },
-            { id: 'top-right', label: '↗️', top: '20px', left: null, right: '20px', bottom: null },
-            { id: 'middle-left', label: '⬅️', top: '50%', left: '20px', right: null, bottom: null, transform: 'translateY(-50%)' },
-            { id: 'middle-center', label: '⚙️', top: '50%', left: '50%', right: null, bottom: null, transform: 'translate(-50%, -50%)' },
-            { id: 'middle-right', label: '➡️', top: '50%', left: null, right: '20px', bottom: null, transform: 'translateY(-50%)' },
-            { id: 'bottom-left', label: '↙️', top: null, left: '20px', right: null, bottom: '80px' },
-            { id: 'bottom-center', label: '⬇️', top: null, left: '50%', right: null, bottom: '80px', transform: 'translateX(-50%)' },
-            { id: 'bottom-right', label: '↘️', top: null, left: null, right: '20px', bottom: '80px' }
-        ];
+        // 버튼 위치 초기화 옵션
+        const resetPositionDiv = document.createElement('div');
+        resetPositionDiv.style.display = 'flex';
+        resetPositionDiv.style.alignItems = 'center';
+        resetPositionDiv.style.justifyContent = 'space-between';
         
-        // 위치 버튼 생성
-        positions.forEach(pos => {
-            const posButton = document.createElement('button');
-            posButton.textContent = pos.label;
-            posButton.style.width = '100%';
-            posButton.style.padding = '8px 0';
-            posButton.style.background = '#272727';
-            posButton.style.border = '1px solid rgba(255, 255, 255, 0.1)';
-            posButton.style.borderRadius = '4px';
-            posButton.style.cursor = 'pointer';
-            posButton.style.fontSize = '16px';
-            
-            posButton.addEventListener('mouseover', function() {
-                this.style.backgroundColor = '#3A3A3A';
-            });
-            posButton.addEventListener('mouseout', function() {
-                this.style.backgroundColor = '#272727';
-            });
-            
-            posButton.addEventListener('click', function() {
-                // 버튼 컨테이너 위치 설정
-                const containerElement = document.getElementById('yt-comments-toggle-container');
-                containerElement.style.top = pos.top || 'auto';
-                containerElement.style.left = pos.left || 'auto';
-                containerElement.style.right = pos.right || 'auto';
-                containerElement.style.bottom = pos.bottom || 'auto';
-                containerElement.style.transform = pos.transform || '';
+        // 레이블 추가
+        const resetPositionLabel = document.createElement('label');
+        resetPositionLabel.textContent = '버튼 위치 초기화';
+        resetPositionLabel.style.fontSize = '13px';
+        resetPositionLabel.style.fontWeight = 'normal';
+        resetPositionLabel.setAttribute('for', 'reset-position-button');
+        
+        const resetPositionButton = document.createElement('button');
+        resetPositionButton.id = 'reset-position-button';
+        resetPositionButton.name = 'reset-position-button';
+        resetPositionButton.textContent = '초기화';
+        resetPositionButton.style.backgroundColor = '#3EA6FF';
+        resetPositionButton.style.color = 'white';
+        resetPositionButton.style.border = 'none';
+        resetPositionButton.style.borderRadius = '4px';
+        resetPositionButton.style.padding = '4px 8px';
+        resetPositionButton.style.fontSize = '12px';
+        resetPositionButton.style.cursor = 'pointer';
+        
+        resetPositionButton.addEventListener('click', function() {
+            const container = document.getElementById('yt-comments-toggle-container');
+            if (container) {
+                container.style.top = '';
+                container.style.left = '';
+                container.style.right = '20px';
+                container.style.bottom = '80px';
                 
-                // 위치 저장
                 buttonPosition = {
-                    top: pos.top || null,
-                    left: pos.left || null,
-                    right: pos.right || null,
-                    bottom: pos.bottom || null,
-                    transform: pos.transform || null
+                    top: null,
+                    left: null,
+                    right: '20px',
+                    bottom: '80px'
                 };
-                saveButtonPosition();
                 
-                // 설정 패널 닫기
-                panel.style.display = 'none';
-            });
-            
-            posGrid.appendChild(posButton);
+                saveButtonPosition();
+            }
         });
         
-        panel.appendChild(posGrid);
+        resetPositionDiv.appendChild(resetPositionLabel);
+        resetPositionDiv.appendChild(resetPositionButton);
+        
+        // 단축키 안내
+        const shortcutInfo = document.createElement('div');
+        shortcutInfo.style.fontSize = '12px';
+        shortcutInfo.style.marginTop = '10px';
+        shortcutInfo.style.padding = '8px';
+        shortcutInfo.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+        shortcutInfo.style.borderRadius = '4px';
+        shortcutInfo.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+        
+        const shortcutTitle = document.createElement('span');
+        shortcutTitle.textContent = '단축키: ';
+        shortcutTitle.style.fontWeight = 'bold';
+        
+        const shortcutDesc = document.createElement('span');
+        shortcutDesc.textContent = 'Alt + C';
+        
+        shortcutInfo.appendChild(shortcutTitle);
+        shortcutInfo.appendChild(shortcutDesc);
+        
+        // 버전 정보
+        const versionInfo = document.createElement('div');
+        versionInfo.style.fontSize = '11px';
+        versionInfo.style.color = '#AAAAAA';
+        versionInfo.style.marginTop = '10px';
+        versionInfo.style.textAlign = 'right';
+        versionInfo.textContent = '버전: 1.2.2';
+        
+        // 모든 설정 항목을 패널에 추가
+        settingsContainer.appendChild(resetPositionDiv);
+        settingsContainer.appendChild(shortcutInfo);
+        settingsContainer.appendChild(versionInfo);
+        
+        panel.appendChild(settingsContainer);
         container.appendChild(panel);
     }
     
@@ -623,53 +676,58 @@
         const container = document.getElementById('yt-comments-toggle-container');
         if (!container) return;
         
-        // 이동할 새 위치 계산
-        let newLeft = e.clientX - offsetX;
-        let newTop = e.clientY - offsetY;
+        e.preventDefault();
         
-        // 화면 경계 확인
-        const containerWidth = container.offsetWidth;
-        const containerHeight = container.offsetHeight;
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
+        const x = e.clientX - offsetX;
+        const y = e.clientY - offsetY;
         
-        // 화면 내에 유지
-        if (newLeft < 0) newLeft = 0;
-        if (newTop < 0) newTop = 0;
-        if (newLeft + containerWidth > windowWidth) {
-            newLeft = windowWidth - containerWidth;
+        // 화면 경계 내부에 유지
+        const rect = container.getBoundingClientRect();
+        const winWidth = window.innerWidth;
+        const winHeight = window.innerHeight;
+        
+        // 위치 결정 및 설정
+        if (x < winWidth / 2) {
+            // 왼쪽 정렬
+            container.style.left = Math.max(10, x) + 'px';
+            container.style.right = 'auto';
+            buttonPosition.left = container.style.left;
+            buttonPosition.right = null;
+        } else {
+            // 오른쪽 정렬
+            container.style.right = Math.max(10, winWidth - x - rect.width) + 'px';
+            container.style.left = 'auto';
+            buttonPosition.right = container.style.right;
+            buttonPosition.left = null;
         }
-        if (newTop + containerHeight > windowHeight) {
-            newTop = windowHeight - containerHeight;
+        
+        if (y < winHeight / 2) {
+            // 상단 정렬
+            container.style.top = Math.max(10, y) + 'px';
+            container.style.bottom = 'auto';
+            buttonPosition.top = container.style.top;
+            buttonPosition.bottom = null;
+        } else {
+            // 하단 정렬
+            container.style.bottom = Math.max(10, winHeight - y - rect.height) + 'px';
+            container.style.top = 'auto';
+            buttonPosition.bottom = container.style.bottom;
+            buttonPosition.top = null;
         }
         
-        // 위치 적용
-        container.style.left = newLeft + 'px';
-        container.style.top = newTop + 'px';
-        container.style.right = 'auto';
-        container.style.bottom = 'auto';
-        container.style.transform = 'none';
+        // 위치 저장
+        saveButtonPosition();
     }
     
-    // 드래그 중지 함수
+    // 드래그 종료 함수
     function stopDrag() {
-        if (!isDragging) return;
-        
         isDragging = false;
         document.removeEventListener('mousemove', handleDrag);
         document.removeEventListener('mouseup', stopDrag);
         
-        // 현재 위치 저장
         const container = document.getElementById('yt-comments-toggle-container');
         if (container) {
             container.style.transition = 'all 0.2s ease';
-            buttonPosition = {
-                top: container.style.top,
-                left: container.style.left,
-                right: 'auto',
-                bottom: 'auto'
-            };
-            saveButtonPosition();
         }
     }
-})();
+})(); 
