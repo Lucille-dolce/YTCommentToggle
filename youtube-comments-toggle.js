@@ -4,8 +4,8 @@
 // @version      1.0
 // @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
 // @author       Lucille
-// @updateURL    https://raw.githubusercontent.com/사용자이름/저장소이름/main/스크립트파일.js
-// @downloadURL  https://raw.githubusercontent.com/사용자이름/저장소이름/main/스크립트파일.js
+// @updateURL    https://raw.githubusercontent.com/Lucille-dolce/YTCommentToggle/main/youtube-comments-toggle.js
+// @downloadURL  https://raw.githubusercontent.com/Lucille-dolce/YTCommentToggle/main/youtube-comments-toggle.js
 // @match        https://www.youtube.com/watch*
 // @grant        none
 // ==/UserScript==
