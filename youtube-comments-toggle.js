@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 댓글 토글 (개선 버전)
 // @namespace    https://github.com/Lucille-dolce
-// @version      1.2.2
+// @version      1.2.3
 // @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
 // @author       Lucille
 // @match        https://www.youtube.com/*
@@ -62,11 +62,34 @@
         }
     }
     
-    // 안전한 HTML 생성 함수 (Trusted Type 오류 방지)
-    function createSafeHTML(html) {
-        const template = document.createElement('template');
-        template.innerHTML = html;
-        return template.content.cloneNode(true);
+    // 안전한 HTML 요소 생성 함수 (Trusted Type 오류 방지)
+    function createSvgElement(svgString) {
+        // SVG 문자열에서 필요한 속성을 추출
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+        const svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        
+        // 원본 SVG의 속성을 복사
+        const originalSvg = svgDoc.querySelector('svg');
+        if (originalSvg) {
+            const attrs = originalSvg.attributes;
+            for (let i = 0; i < attrs.length; i++) {
+                svgElement.setAttribute(attrs[i].name, attrs[i].value);
+            }
+            
+            // 내부 요소들을 처리
+            Array.from(originalSvg.childNodes).forEach(node => {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const clone = document.createElementNS('http://www.w3.org/2000/svg', node.tagName);
+                    Array.from(node.attributes).forEach(attr => {
+                        clone.setAttribute(attr.name, attr.value);
+                    });
+                    svgElement.appendChild(clone);
+                }
+            });
+        }
+        
+        return svgElement;
     }
     
     // 댓글 아이콘 SVG (간단한 버블 형태)
@@ -165,18 +188,16 @@
             if (commentsHidden) {
                 commentsSection.style.display = 'block';
                 if (button) {
-                    const commentIcon = createSafeHTML(commentIconSVG);
                     button.innerHTML = '';
-                    button.appendChild(commentIcon);
+                    button.appendChild(createSvgElement(commentIconSVG));
                     button.appendChild(document.createTextNode(' 댓글 숨기기'));
                 }
                 commentsHidden = false;
             } else {
                 commentsSection.style.display = 'none';
                 if (button) {
-                    const commentIcon = createSafeHTML(commentIconSVG);
                     button.innerHTML = '';
-                    button.appendChild(commentIcon);
+                    button.appendChild(createSvgElement(commentIconSVG));
                     button.appendChild(document.createTextNode(' 댓글 표시'));
                 }
                 commentsHidden = true;
@@ -193,9 +214,8 @@
             // 버튼 텍스트 업데이트
             const button = document.getElementById('toggle-comments-button');
             if (button) {
-                const commentIcon = createSafeHTML(commentIconSVG);
                 button.innerHTML = '';
-                button.appendChild(commentIcon);
+                button.appendChild(createSvgElement(commentIconSVG));
                 button.appendChild(document.createTextNode(' 댓글 표시'));
             }
             return true;
@@ -256,128 +276,106 @@
             
             const button = document.getElementById('toggle-comments-button');
             if (button) {
-                const commentIcon = createSafeHTML(commentIconSVG);
                 button.innerHTML = '';
-                button.appendChild(commentIcon);
+                button.appendChild(createSvgElement(commentIconSVG));
                 button.appendChild(document.createTextNode(' 댓글 표시'));
             }
         }
         
-        initialized = true;
-    }
-    
-    // 키보드 단축키 이벤트 리스너
-    function setupKeyboardShortcut() {
-        document.addEventListener('keydown', function(e) {
-            // Alt+C로 댓글 토글
-            if (e.altKey && e.key === 'c') {
-                if (window.location.href.includes('/watch')) {
-                    toggleComments();
-                }
-            }
-        });
-    }
-    
-    // DOM 변화 감지를 위한 MutationObserver
-    function setupMutationObserver() {
-        // 페이지 변화 감지
-        const bodyObserver = new MutationObserver(function(mutations) {
-            // URL 변경 확인
-            checkForUrlChange();
-            
-            // 동영상 페이지인지 확인
-            if (window.location.href.includes('/watch')) {
-                // 댓글 섹션이 로드되었고 숨겨진 상태여야 하는지 확인
-                if (!initialized || commentsHidden) {
-                    attemptHideComments();
-                }
-            }
-        });
-        
-        // 전체 DOM 변화 감시
-        bodyObserver.observe(document.documentElement, { 
-            childList: true, 
-            subtree: true, 
-            attributes: false, 
-            characterData: false 
-        });
-    }
-    
-    // 유튜브 SPA 이벤트 리스너 설정
-    function setupYoutubeEvents() {
-        // 유튜브 내비게이션 완료 이벤트
-        document.addEventListener('yt-navigate-finish', function() {
-            checkForUrlChange();
-            
-            if (window.location.href.includes('/watch')) {
-                initialized = false;
-                setTimeout(initOnVideoPage, 500);
-            }
-        });
-        
-        // 히스토리 상태 변경 이벤트
-        window.addEventListener('popstate', function() {
-            checkForUrlChange();
-        });
-        
-        // 히스토리 API 오버라이드
-        const originalPushState = history.pushState;
-        history.pushState = function() {
-            originalPushState.apply(this, arguments);
-            checkForUrlChange();
-        };
-        
-        const originalReplaceState = history.replaceState;
-        history.replaceState = function() {
-            originalReplaceState.apply(this, arguments);
-            checkForUrlChange();
-        };
-    }
-    
-    // 초기화 함수
-    function init() {
-        // URL 감시 시작
-        currentUrl = window.location.href;
-        
-        // 동영상 페이지에서만 초기화
-        if (currentUrl.includes('/watch')) {
-            initOnVideoPage();
-        }
-        
-        // MutationObserver 설정
-        setupMutationObserver();
-        
         // 키보드 단축키 설정
         setupKeyboardShortcut();
         
-        // 유튜브 이벤트 리스너 설정
-        setupYoutubeEvents();
+        initialized = true;
     }
     
-    // 초기화 함수 실행 - DOM 로드 완료 후
-    function initializeScript() {
+    // 키보드 단축키 설정 함수
+    function setupKeyboardShortcut() {
+        document.addEventListener('keydown', function(e) {
+            // Alt + C 키 조합으로 댓글 토글
+            if (e.altKey && e.code === 'KeyC') {
+                toggleComments();
+            }
+        });
+    }
+    
+    // 페이지 변경 감지를 위한 MutationObserver 설정
+    function setupMutationObserver() {
+        const observer = new MutationObserver(function(mutations) {
+            // 페이지 URL이 바뀌었는지 확인
+            checkForUrlChange();
+            
+            // 댓글 UI를 다시 찾아 숨기기 (동적 로딩 대응)
+            if (window.location.href.includes('/watch') && commentsHidden) {
+                attemptHideComments();
+            }
+        });
+        
+        // 페이지 변경 감지를 위해 body 전체를 감시
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+    
+    // 유튜브 이벤트 핸들러 설정
+    function setupYoutubeEvents() {
+        // 페이지 로드 완료 시
+        window.addEventListener('load', function() {
+            if (window.location.href.includes('/watch')) {
+                initOnVideoPage();
+            }
+        });
+        
+        // 히스토리 API를 통한 페이지 변경 감지
+        window.addEventListener('popstate', function() {
+            setTimeout(checkForUrlChange, 100);
+        });
+        
+        // 정기적인 URL 변경 체크 (Single Page Application 특성 대응)
+        setInterval(checkForUrlChange, 1000);
+        
+        // MutationObserver 설정
+        setupMutationObserver();
+    }
+    
+    // 기본 초기화 함수
+    function init() {
+        // 이미 초기화되었는지 확인
+        if (initialized) return;
+        
         try {
-            init();
-            console.log('YouTube 댓글 토글 스크립트 초기화 완료');
+            // 현재 비디오 페이지인지 확인
+            if (window.location.href.includes('/watch')) {
+                initOnVideoPage();
+            }
+            
+            // 유튜브 이벤트 핸들러 설정
+            setupYoutubeEvents();
+            
         } catch (error) {
             console.error('초기화 중 오류가 발생했습니다:', error);
         }
     }
     
-    // DOM이 로드되면 초기화
+    // 스크립트 초기화 함수 - document ready 또는 DOMContentLoaded 이벤트 발생 시 호출
+    function initializeScript() {
+        try {
+            init();
+        } catch (e) {
+            console.error('초기화 중 오류가 발생했습니다:', e);
+        }
+    }
+    
+    // document가 이미 로드되었는지 확인하고 적절한 타이밍에 초기화
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initializeScript);
     } else {
-        initializeScript();
+        // 이미 로드된 경우 바로 초기화
+        setTimeout(initializeScript, 0);
     }
     
-    // 페이지가 완전히 로드된 후에도 초기화 (일부 요소가 지연 로딩될 수 있음)
-    window.addEventListener('load', function() {
-        if (window.location.href.includes('/watch')) {
-            // 페이지 로드 후 한 번 더 시도
-            setTimeout(initOnVideoPage, 1000);
-        }
-    });
+    // 스크립트 실행 전 페이지가 변경되는 것을 감지하기 위한 interval 설정
+    setInterval(checkForUrlChange, 1000);
 
     // 토글 버튼 생성 함수
     function createToggleButton() {
@@ -409,8 +407,7 @@
         button.setAttribute('aria-label', '댓글 토글 버튼');
         
         // 안전한 방식으로 버튼 내용 설정
-        const commentIcon = createSafeHTML(commentIconSVG);
-        button.appendChild(commentIcon);
+        button.appendChild(createSvgElement(commentIconSVG));
         button.appendChild(document.createTextNode(' 댓글 표시'));
         
         button.style.display = 'flex';
@@ -447,8 +444,7 @@
         dragHandle.id = 'yt-comments-drag-handle';
         dragHandle.setAttribute('aria-label', '버튼 위치 드래그');
         
-        const dragIcon = createSafeHTML(dragIconSVG);
-        dragHandle.appendChild(dragIcon);
+        dragHandle.appendChild(createSvgElement(dragIconSVG));
         
         dragHandle.style.position = 'absolute';
         dragHandle.style.top = '-18px';
@@ -495,8 +491,7 @@
         settingsButton.id = 'yt-comments-settings-button';
         settingsButton.setAttribute('aria-label', '설정 버튼');
         
-        const settingsIcon = createSafeHTML(settingsIconSVG);
-        settingsButton.appendChild(settingsIcon);
+        settingsButton.appendChild(createSvgElement(settingsIconSVG));
         
         settingsButton.style.position = 'absolute';
         settingsButton.style.top = '-18px';
@@ -580,88 +575,84 @@
         resetPositionDiv.style.alignItems = 'center';
         resetPositionDiv.style.justifyContent = 'space-between';
         
-        // 레이블 추가
-        const resetPositionLabel = document.createElement('label');
-        resetPositionLabel.textContent = '버튼 위치 초기화';
-        resetPositionLabel.style.fontSize = '13px';
-        resetPositionLabel.style.fontWeight = 'normal';
-        resetPositionLabel.setAttribute('for', 'reset-position-button');
+        const resetLabel = document.createElement('span');
+        resetLabel.textContent = '버튼 위치 초기화';
+        resetLabel.style.fontSize = '12px';
         
-        const resetPositionButton = document.createElement('button');
-        resetPositionButton.id = 'reset-position-button';
-        resetPositionButton.name = 'reset-position-button';
-        resetPositionButton.textContent = '초기화';
-        resetPositionButton.style.backgroundColor = '#3EA6FF';
-        resetPositionButton.style.color = 'white';
-        resetPositionButton.style.border = 'none';
-        resetPositionButton.style.borderRadius = '4px';
-        resetPositionButton.style.padding = '4px 8px';
-        resetPositionButton.style.fontSize = '12px';
-        resetPositionButton.style.cursor = 'pointer';
+        const resetButton = document.createElement('button');
+        resetButton.textContent = '초기화';
+        resetButton.style.padding = '4px 8px';
+        resetButton.style.backgroundColor = '#3EA6FF';
+        resetButton.style.border = 'none';
+        resetButton.style.borderRadius = '4px';
+        resetButton.style.cursor = 'pointer';
+        resetButton.style.fontSize = '12px';
+        resetButton.style.fontWeight = 'bold';
         
-        resetPositionButton.addEventListener('click', function() {
+        resetButton.addEventListener('click', function() {
+            buttonPosition = {
+                top: null,
+                left: null,
+                right: '20px',
+                bottom: '80px'
+            };
+            
             const container = document.getElementById('yt-comments-toggle-container');
             if (container) {
                 container.style.top = '';
                 container.style.left = '';
-                container.style.right = '20px';
-                container.style.bottom = '80px';
-                
-                buttonPosition = {
-                    top: null,
-                    left: null,
-                    right: '20px',
-                    bottom: '80px'
-                };
-                
-                saveButtonPosition();
+                container.style.right = buttonPosition.right;
+                container.style.bottom = buttonPosition.bottom;
             }
+            
+            saveButtonPosition();
         });
         
-        resetPositionDiv.appendChild(resetPositionLabel);
-        resetPositionDiv.appendChild(resetPositionButton);
+        resetPositionDiv.appendChild(resetLabel);
+        resetPositionDiv.appendChild(resetButton);
         
-        // 단축키 안내
+        // 단축키 정보
+        const shortcutDiv = document.createElement('div');
+        shortcutDiv.style.marginTop = '10px';
+        
+        const shortcutLabel = document.createElement('span');
+        shortcutLabel.textContent = '단축키:';
+        shortcutLabel.style.fontSize = '12px';
+        shortcutLabel.style.display = 'block';
+        shortcutLabel.style.marginBottom = '5px';
+        
         const shortcutInfo = document.createElement('div');
+        shortcutInfo.textContent = 'Alt + C: 댓글 토글';
         shortcutInfo.style.fontSize = '12px';
-        shortcutInfo.style.marginTop = '10px';
-        shortcutInfo.style.padding = '8px';
-        shortcutInfo.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+        shortcutInfo.style.backgroundColor = '#272727';
+        shortcutInfo.style.padding = '6px';
         shortcutInfo.style.borderRadius = '4px';
-        shortcutInfo.style.border = '1px solid rgba(255, 255, 255, 0.1)';
         
-        const shortcutTitle = document.createElement('span');
-        shortcutTitle.textContent = '단축키: ';
-        shortcutTitle.style.fontWeight = 'bold';
-        
-        const shortcutDesc = document.createElement('span');
-        shortcutDesc.textContent = 'Alt + C';
-        
-        shortcutInfo.appendChild(shortcutTitle);
-        shortcutInfo.appendChild(shortcutDesc);
+        shortcutDiv.appendChild(shortcutLabel);
+        shortcutDiv.appendChild(shortcutInfo);
         
         // 버전 정보
-        const versionInfo = document.createElement('div');
-        versionInfo.style.fontSize = '11px';
-        versionInfo.style.color = '#AAAAAA';
-        versionInfo.style.marginTop = '10px';
-        versionInfo.style.textAlign = 'right';
-        versionInfo.textContent = '버전: 1.2.2';
+        const versionDiv = document.createElement('div');
+        versionDiv.style.marginTop = '15px';
+        versionDiv.style.fontSize = '11px';
+        versionDiv.style.color = '#AAAAAA';
+        versionDiv.style.textAlign = 'center';
+        versionDiv.textContent = '유튜브 댓글 토글 v1.2.3';
         
-        // 모든 설정 항목을 패널에 추가
+        // 컨테이너에 설정 항목들 추가
         settingsContainer.appendChild(resetPositionDiv);
-        settingsContainer.appendChild(shortcutInfo);
-        settingsContainer.appendChild(versionInfo);
+        settingsContainer.appendChild(shortcutDiv);
+        settingsContainer.appendChild(versionDiv);
         
         panel.appendChild(settingsContainer);
         container.appendChild(panel);
     }
     
-    // 설정 패널 토글
+    // 설정 패널 표시/숨기기 토글
     function toggleSettingsPanel() {
         const panel = document.getElementById('yt-comments-settings-panel');
         if (panel) {
-            if (panel.style.display === 'none' || !panel.style.display) {
+            if (panel.style.display === 'none') {
                 panel.style.display = 'block';
             } else {
                 panel.style.display = 'none';
@@ -676,58 +667,50 @@
         const container = document.getElementById('yt-comments-toggle-container');
         if (!container) return;
         
-        e.preventDefault();
-        
+        // 마우스 위치에 따라 컨테이너 위치 계산
         const x = e.clientX - offsetX;
         const y = e.clientY - offsetY;
         
-        // 화면 경계 내부에 유지
-        const rect = container.getBoundingClientRect();
-        const winWidth = window.innerWidth;
-        const winHeight = window.innerHeight;
+        // 화면 경계 체크
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const containerWidth = container.offsetWidth;
+        const containerHeight = container.offsetHeight;
         
-        // 위치 결정 및 설정
-        if (x < winWidth / 2) {
-            // 왼쪽 정렬
-            container.style.left = Math.max(10, x) + 'px';
-            container.style.right = 'auto';
-            buttonPosition.left = container.style.left;
-            buttonPosition.right = null;
-        } else {
-            // 오른쪽 정렬
-            container.style.right = Math.max(10, winWidth - x - rect.width) + 'px';
-            container.style.left = 'auto';
-            buttonPosition.right = container.style.right;
-            buttonPosition.left = null;
-        }
+        // 화면 경계를 벗어나지 않도록 설정
+        let newLeft = Math.max(0, Math.min(x, viewportWidth - containerWidth));
+        let newTop = Math.max(0, Math.min(y, viewportHeight - containerHeight));
         
-        if (y < winHeight / 2) {
-            // 상단 정렬
-            container.style.top = Math.max(10, y) + 'px';
-            container.style.bottom = 'auto';
-            buttonPosition.top = container.style.top;
-            buttonPosition.bottom = null;
-        } else {
-            // 하단 정렬
-            container.style.bottom = Math.max(10, winHeight - y - rect.height) + 'px';
-            container.style.top = 'auto';
-            buttonPosition.bottom = container.style.bottom;
-            buttonPosition.top = null;
-        }
+        // 위치 업데이트
+        container.style.left = newLeft + 'px';
+        container.style.top = newTop + 'px';
+        container.style.right = '';
+        container.style.bottom = '';
         
-        // 위치 저장
-        saveButtonPosition();
+        // 위치 정보 업데이트
+        buttonPosition = {
+            top: newTop + 'px',
+            left: newLeft + 'px',
+            right: null,
+            bottom: null
+        };
     }
     
     // 드래그 종료 함수
     function stopDrag() {
-        isDragging = false;
-        document.removeEventListener('mousemove', handleDrag);
-        document.removeEventListener('mouseup', stopDrag);
-        
-        const container = document.getElementById('yt-comments-toggle-container');
-        if (container) {
-            container.style.transition = 'all 0.2s ease';
+        if (isDragging) {
+            isDragging = false;
+            document.removeEventListener('mousemove', handleDrag);
+            document.removeEventListener('mouseup', stopDrag);
+            
+            // 위치 저장
+            saveButtonPosition();
+            
+            // 트랜지션 복원
+            const container = document.getElementById('yt-comments-toggle-container');
+            if (container) {
+                container.style.transition = 'all 0.2s ease';
+            }
         }
     }
 })(); 
