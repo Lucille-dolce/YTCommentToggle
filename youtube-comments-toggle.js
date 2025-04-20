@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube 댓글 토글 (개선 버전)
 // @namespace    https://github.com/Lucille-dolce
-// @version      1.2.4
+// @version      1.2.5
 // @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
 // @author       Lucille
 // @match        https://www.youtube.com/*
@@ -127,20 +127,22 @@
             return null;
         }
 
-        // 유튜브의 다양한 버전에 대응하기 위한 선택자 목록
+        // 유튜브의 다양한 버전에 대응하기 위한 선택자 목록 (사용자 제안 우선)
         const selectors = [
-            '#comments',                     // 기본 댓글 섹션 ID
-            'ytd-comments#comments',         // 최신 레이아웃
-            '#comments-section',             // 다른 구조에서 사용될 수 있음
+            'div#below > ytd-comments#comments', // 사용자 제안: #below 컨테이너 내부의 댓글 섹션
+            'ytd-comments#comments',             // 기본 댓글 섹션 ID (기존 우선순위)
+            '#comments',                         // 이전 레이아웃 ID
+            '#comments-section',                 // 다른 구조에서 사용될 수 있음
             'ytd-item-section-renderer[section-identifier="comment-item-section"]', // 특정 렌더러
-            '#below ytd-comments#comments',  // 비디오 아래 영역
-            'ytd-watch-flexy #comments',     // 새로운 Flexbox 레이아웃
-            '#primary-inner #comments',      // Primary 영역 내부
-            '#secondary-inner #comments'     // Secondary 영역 내부 (예: 관련 동영상 옆)
+            '#below ytd-comments#comments',      // 비디오 아래 영역 (중복될 수 있으나 포함)
+            'ytd-watch-flexy #comments',         // 새로운 Flexbox 레이아웃
+            '#primary-inner #comments',          // Primary 영역 내부
+            '#secondary-inner #comments'         // Secondary 영역 내부 (예: 관련 동영상 옆)
         ];
 
         // 각 선택자를 시도
         for (const selector of selectors) {
+            console.log(`댓글 섹션 찾기 시도: ${selector}`); // 어떤 선택자를 시도하는지 로그 추가
             const element = document.querySelector(selector);
             if (element && element.offsetParent !== null) { // 요소가 존재하고 화면에 실제로 표시되는지 확인
                 console.log('댓글 섹션을 찾았습니다:', selector);
@@ -647,7 +649,9 @@
         versionDiv.style.fontSize = '11px';
         versionDiv.style.color = '#AAAAAA';
         versionDiv.style.textAlign = 'center';
-        versionDiv.textContent = '유튜브 댓글 토글 v' + GM_info.script.version; // 스크립트 헤더에서 버전 가져오기
+        // GM_info를 안전하게 사용 (존재하지 않을 경우 대비)
+        const scriptVersion = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '알 수 없음';
+        versionDiv.textContent = '유튜브 댓글 토글 v' + scriptVersion; // 스크립트 헤더에서 버전 가져오기
 
         // 컨테이너에 설정 항목들 추가
         settingsContainer.appendChild(resetPositionDiv);
