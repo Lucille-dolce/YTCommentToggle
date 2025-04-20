@@ -1,5 +1,9 @@
 # YTCommentToggle
 유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
+URL을 복사해서 빠르게 설치:
+```
+https://raw.githubusercontent.com/Lucille-dolce/YTCommentToggle/main/youtube-comments-toggle.js
+```
 
 # 작성자 코멘트 🤔
 - 탬퍼몽키는 2.9버전 이후로 독점 소프트웨어(폐쇄 소스)가 되었다고 하니까 https://violentmonkey.github.io/ 링크에서 다른 원숭이를 데려오는 것을 추천드립니다.
