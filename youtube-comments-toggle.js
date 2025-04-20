@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         YouTube 댓글 토글 (개선 버전)
+// @name         유튜브 댓글 토글 (강화 버전)
 // @namespace    https://github.com/Lucille-dolce
-// @version      1.2.5
-// @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]
+// @version      1.3.0
+// @description  유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 (강력 새로고침 대응 버전)
 // @author       Lucille
 // @match        https://www.youtube.com/*
 // @grant        GM_getValue
@@ -17,7 +17,7 @@
  * 🔴 중요: 위 항목들은 필요에 따라 직접 수정하세요! 🔴
  * ===================================================================================================
  * @namespace   - 스크립트 네임스페이스 (예: https://github.com/yourusername/youtube-comments-toggle)
- * @description - 스크립트 설명 (예: HSP를 위한 유튜브 댓글 숨김/표시 토글 스크립트)
+ * @description - 스크립트 설명 (예: 유튜브 댓글 숨김/표시 토글 스크립트)
  * @author      - 작성자 정보 (예: 홍길동)
  * @updateURL   - 업데이트 URL (예: https://github.com/yourusername/userscripts/youtube-comments-toggle.user.js)
  * @downloadURL - 다운로드 URL (예: https://github.com/yourusername/userscripts/youtube-comments-toggle.user.js)
@@ -32,10 +32,22 @@
     let currentUrl = window.location.href;
     let initialized = false;
     let attempts = 0;
-    const MAX_ATTEMPTS = 20;
+    const MAX_ATTEMPTS = 30; // 최대 시도 횟수 증가
     let buttonCreated = false;
     let isDragging = false;
     let offsetX, offsetY;
+    let initializationTimer = null;
+    let observerActive = false;
+    
+    // 디버깅 모드 설정 (개발 중에만 true로 설정)
+    const DEBUG_MODE = true;
+    
+    // 로그 출력 함수 (디버깅 모드일 때만 출력)
+    function debugLog(...args) {
+        if (DEBUG_MODE) {
+            console.log("[유튜브 댓글 토글]", ...args);
+        }
+    }
 
     // 버튼 위치 설정 - 저장된 값이 없으면 기본값 사용
     let buttonPosition = {
@@ -45,14 +57,14 @@
         bottom: '80px'
     };
 
-    // 저장된 위치 불러오기 (Violentmonkey에서 지원하는 경우)
+    // 저장된 위치 불러오기 (Violentmonkey/Tampermonkey에서 지원하는 경우)
     try {
         const savedPosition = typeof GM_getValue === 'function' ? GM_getValue('buttonPosition', null) : null;
         if (savedPosition) {
             buttonPosition = JSON.parse(savedPosition);
         }
     } catch (e) {
-        console.log('위치 설정을 불러올 수 없습니다:', e);
+        debugLog('위치 설정을 불러올 수 없습니다:', e);
     }
 
     // 버튼 위치 저장 함수
@@ -73,7 +85,6 @@
         }
         children.forEach(child => {
             if (typeof child === 'string') {
-                // This case shouldn't happen for SVG, but included for safety
                 element.appendChild(document.createTextNode(child));
             } else {
                 element.appendChild(child);
@@ -120,66 +131,125 @@
         }, circles);
     }
 
-    // 댓글 섹션 찾기 (여러 선택자 시도)
+    // 댓글 섹션 찾기 (강화된 버전)
     function findCommentsSection() {
         // 동영상 페이지에 있는지 확인
         if (!window.location.href.includes('/watch')) {
             return null;
         }
 
-        // 유튜브의 다양한 버전에 대응하기 위한 선택자 목록 (사용자 제안 우선)
+        debugLog("댓글 섹션 탐색 시작");
+
+        // 유튜브의 다양한 버전에 대응하기 위한 선택자 목록 (확장 버전)
         const selectors = [
-            'div#below > ytd-comments#comments', // 사용자 제안: #below 컨테이너 내부의 댓글 섹션
-            'ytd-comments#comments',             // 기본 댓글 섹션 ID (기존 우선순위)
-            '#comments',                         // 이전 레이아웃 ID
-            '#comments-section',                 // 다른 구조에서 사용될 수 있음
+            'div#below > ytd-comments#comments',                                    // 표준 레이아웃
+            'ytd-comments#comments',                                                // 기본 댓글 섹션 ID
+            '#comments',                                                           // 이전 레이아웃 ID
+            '#comments-section',                                                   // 다른 구조에서 사용될 수 있음
             'ytd-item-section-renderer[section-identifier="comment-item-section"]', // 특정 렌더러
-            '#below ytd-comments#comments',      // 비디오 아래 영역 (중복될 수 있으나 포함)
-            'ytd-watch-flexy #comments',         // 새로운 Flexbox 레이아웃
-            '#primary-inner #comments',          // Primary 영역 내부
-            '#secondary-inner #comments'         // Secondary 영역 내부 (예: 관련 동영상 옆)
+            '#below ytd-comments#comments',                                        // 비디오 아래 영역
+            'ytd-watch-flexy #comments',                                           // 새로운 Flexbox 레이아웃
+            '#primary-inner #comments',                                            // Primary 영역 내부
+            '#secondary-inner #comments',                                          // Secondary 영역 내부
+            'div[id="below"] > ytd-comments[id="comments"]',                        // 속성 선택자 방식
+            'ytd-watch-flexy div#below ytd-comments',                              // 가장 최신 레이아웃 
+            '[page-subtype="watch"] #comments',                                     // 페이지 타입 기반
+            'ytd-watch[role="main"] #comments',                                     // 메인 영역 기반
+            '#primary #below #comments',                                           // 계층 구조 기반
+            '#secondary #comments',                                                // 사이드바 댓글
+            'ytd-engagement-panel-section-list-renderer #comments'                  // 확장 패널 내 댓글
         ];
 
         // 각 선택자를 시도
         for (const selector of selectors) {
-            console.log(`댓글 섹션 찾기 시도: ${selector}`); // 어떤 선택자를 시도하는지 로그 추가
+            debugLog(`댓글 섹션 찾기 시도: ${selector}`);
             const element = document.querySelector(selector);
             if (element && element.offsetParent !== null) { // 요소가 존재하고 화면에 실제로 표시되는지 확인
-                console.log('댓글 섹션을 찾았습니다:', selector);
+                debugLog('댓글 섹션을 찾았습니다:', selector);
                 return element;
             }
         }
 
-        // 디버깅 정보 추가
-        console.log('댓글 섹션을 찾지 못했습니다. 댓글 선택자가 변경되었을 수 있습니다.');
+        // XPath를 사용한 대체 검색 방법
+        debugLog('CSS 선택자를 통한 탐색 실패, XPath로 시도합니다');
+        
+        // 다양한 언어에 대응하기 위해 여러 텍스트 패턴 시도
+        const commentTexts = ['댓글', 'Comments', '댓글 ', 'comments'];
+        
+        for (const textPattern of commentTexts) {
+            try {
+                // 댓글 텍스트를 포함하는 요소 검색
+                const xpathResult = document.evaluate(
+                    `//h2[contains(text(), "${textPattern}")]`,
+                    document,
+                    null,
+                    XPathResult.FIRST_ORDERED_NODE_TYPE,
+                    null
+                ).singleNodeValue;
 
-        // 좀 더 일반적인 방법으로 시도 (HTML 구조 분석)
-        const commentsText = document.evaluate(
-            '//h2[contains(text(), "댓글") or contains(text(), "Comments")]',
-            document,
-            null,
-            XPathResult.FIRST_ORDERED_NODE_TYPE,
-            null
-        ).singleNodeValue;
-
-        if (commentsText) {
-            let parent = commentsText.closest('ytd-item-section-renderer') || commentsText.closest('#comments');
-            if (parent) {
-                console.log('댓글 섹션을 텍스트로 찾았습니다:', parent);
-                return parent;
+                if (xpathResult) {
+                    // 발견된 텍스트에서 가장 가까운 댓글 컨테이너 찾기
+                    let parent = xpathResult.closest('ytd-item-section-renderer') || 
+                                xpathResult.closest('#comments') || 
+                                xpathResult.closest('ytd-comments');
+                    
+                    if (parent) {
+                        debugLog('XPath를 통해 댓글 섹션을 찾았습니다:', parent);
+                        return parent;
+                    }
+                    
+                    // 부모 요소에서 상위로 올라가며 컨테이너 탐색
+                    parent = xpathResult.parentElement;
+                    for (let i = 0; i < 5; i++) { // 최대 5단계까지 상위로 탐색
+                        if (!parent) break;
+                        
+                        // 가능한 댓글 컨테이너 속성 확인
+                        if (parent.id === 'comments' || 
+                            parent.tagName.toLowerCase().includes('comment') ||
+                            parent.getAttribute('section-identifier') === 'comment-item-section') {
+                            debugLog('XPath 부모 탐색을 통해 댓글 섹션을 찾았습니다:', parent);
+                            return parent;
+                        }
+                        parent = parent.parentElement;
+                    }
+                }
+            } catch (err) {
+                debugLog('XPath 검색 중 오류 발생:', err);
             }
         }
 
+        // DOM 트리 순회를 통한 마지막 시도
+        debugLog('DOM 트리 순회를 통한 댓글 섹션 탐색 시도');
+        const possibleContainers = document.querySelectorAll('div[id], ytd-comments, ytd-item-section-renderer');
+        
+        for (const container of possibleContainers) {
+            // ID, 클래스이름, 속성 등에 'comment'가 포함되어 있는지 확인
+            if ((container.id && container.id.toLowerCase().includes('comment')) ||
+                (container.className && container.className.toLowerCase().includes('comment')) ||
+                container.hasAttribute('section-identifier') && 
+                container.getAttribute('section-identifier').includes('comment')) {
+                
+                // 화면에 보이는지 확인
+                if (container.offsetParent !== null) {
+                    debugLog('DOM 트리 순회를 통해 댓글 섹션을 찾았습니다:', container);
+                    return container;
+                }
+            }
+        }
+
+        debugLog('모든 방법을 시도했으나 댓글 섹션을 찾지 못했습니다');
         return null;
     }
 
-    // 댓글 표시/숨기기 토글 함수
+    // 댓글 표시/숨기기 토글 함수 (개선 버전)
     function toggleComments() {
+        debugLog("댓글 토글 함수 실행");
         const commentsSection = findCommentsSection();
         const button = document.getElementById('toggle-comments-button');
 
         if (commentsSection) {
             if (commentsHidden) {
+                // 댓글 표시
                 commentsSection.style.display = 'block';
                 if (button) {
                     button.innerHTML = '';
@@ -187,7 +257,9 @@
                     button.appendChild(document.createTextNode(' 댓글 숨기기'));
                 }
                 commentsHidden = false;
+                debugLog("댓글이 표시되었습니다");
             } else {
+                // 댓글 숨기기
                 commentsSection.style.display = 'none';
                 if (button) {
                     button.innerHTML = '';
@@ -195,7 +267,13 @@
                     button.appendChild(document.createTextNode(' 댓글 표시'));
                 }
                 commentsHidden = true;
+                debugLog("댓글이 숨겨졌습니다");
             }
+        } else {
+            debugLog("토글 실패: 댓글 섹션을 찾을 수 없습니다");
+            // 댓글 섹션을 찾지 못한 경우 재시도
+            attempts = 0;
+            attemptHideComments();
         }
     }
 
@@ -205,6 +283,7 @@
         if (commentsSection) {
             commentsSection.style.display = 'none';
             commentsHidden = true;
+            
             // 버튼 텍스트 업데이트
             const button = document.getElementById('toggle-comments-button');
             if (button) {
@@ -212,41 +291,59 @@
                 button.appendChild(createCommentIcon());
                 button.appendChild(document.createTextNode(' 댓글 표시'));
             }
+            debugLog("댓글이 숨겨졌습니다");
             return true;
         }
+        debugLog("댓글 숨기기 실패: 댓글 섹션을 찾을 수 없습니다");
         return false;
     }
 
-    // 재시도 메커니즘으로 댓글 숨기기
+    // 재시도 메커니즘으로 댓글 숨기기 (개선 버전)
     function attemptHideComments() {
         if (attempts >= MAX_ATTEMPTS) {
+            debugLog(`최대 시도 횟수(${MAX_ATTEMPTS})에 도달했습니다. 댓글 섹션 탐색 중단.`);
             attempts = 0;
             return;
         }
 
         if (!hideComments()) {
             attempts++;
-            setTimeout(attemptHideComments, 300);
+            debugLog(`댓글 숨기기 시도 ${attempts}/${MAX_ATTEMPTS}`);
+            
+            // 지수 백오프 적용 (재시도 간격을 점점 늘림)
+            const delay = Math.min(300 * Math.pow(1.2, attempts - 1), 3000);
+            setTimeout(attemptHideComments, delay);
         } else {
             attempts = 0;
         }
     }
 
-    // URL 변경 감지 및 처리
+    // URL 변경 감지 및 처리 (개선 버전)
     function checkForUrlChange() {
         const newUrl = window.location.href;
         if (currentUrl !== newUrl) {
-            console.log("URL 변경 감지:", currentUrl, "=>", newUrl);
+            debugLog("URL 변경 감지:", currentUrl, "=>", newUrl);
             currentUrl = newUrl;
+            
+            // 기존 초기화 타이머 취소
+            if (initializationTimer) {
+                clearTimeout(initializationTimer);
+                initializationTimer = null;
+            }
+            
             // 동영상 페이지 진입 시
             if (newUrl.includes('/watch')) {
-                console.log("동영상 페이지 진입, 초기화 시도...");
+                debugLog("동영상 페이지 진입, 초기화 시도...");
                 initialized = false;
                 buttonCreated = false; // 페이지 이동 시 버튼 재생성 필요
-                initOnVideoPage();
+                
+                // 지연 후 초기화 (유튜브가 DOM을 완전히 업데이트할 시간 제공)
+                initializationTimer = setTimeout(() => {
+                    initOnVideoPage();
+                }, 500);
             } else {
                 // 동영상 페이지 이탈 시
-                console.log("동영상 페이지 이탈, 버튼 숨김");
+                debugLog("동영상 페이지 이탈, 버튼 숨김");
                 const container = document.getElementById('yt-comments-toggle-container');
                 if (container) {
                     container.style.display = 'none';
@@ -255,17 +352,32 @@
         }
     }
 
-    // 동영상 페이지에서 초기화
+    // 동영상 페이지에서 초기화 (개선 버전)
     function initOnVideoPage() {
         if (initialized) return;
-        console.log("initOnVideoPage 실행");
+        debugLog("initOnVideoPage 실행");
 
         // 댓글 섹션이 나타날 때까지 기다림
+        let checkAttempts = 0;
+        const MAX_CHECK_ATTEMPTS = 30; // 최대 대기 시도 횟수
+        
         const checkCommentsInterval = setInterval(() => {
+            checkAttempts++;
+            if (checkAttempts > MAX_CHECK_ATTEMPTS) {
+                clearInterval(checkCommentsInterval);
+                debugLog(`최대 대기 시도 횟수(${MAX_CHECK_ATTEMPTS})에 도달했습니다. 초기화 실패.`);
+                
+                // 그래도 버튼은 표시해서 사용자가 수동으로 시도할 수 있게 함
+                if (!buttonCreated) {
+                    createToggleButton();
+                }
+                return;
+            }
+            
             const commentsSection = findCommentsSection();
             if (commentsSection) {
                 clearInterval(checkCommentsInterval);
-                console.log("댓글 섹션 확인됨, 초기화 계속...");
+                debugLog("댓글 섹션 확인됨, 초기화 계속...");
 
                 // 댓글 숨기기 시도
                 attemptHideComments();
@@ -290,17 +402,11 @@
                 setupKeyboardShortcut();
 
                 initialized = true;
-                console.log("초기화 완료");
+                debugLog("초기화 완료");
+            } else {
+                debugLog(`댓글 섹션 확인 시도 ${checkAttempts}/${MAX_CHECK_ATTEMPTS}`);
             }
         }, 500); // 0.5초마다 확인
-
-        // 일정 시간 후에도 댓글 섹션 못 찾으면 중단
-        setTimeout(() => {
-            if (!initialized) {
-                clearInterval(checkCommentsInterval);
-                console.error("시간 초과: 댓글 섹션을 찾지 못해 초기화 실패");
-            }
-        }, 10000); // 10초 동안 시도
     }
 
     // 키보드 단축키 설정 함수
@@ -312,63 +418,158 @@
     function handleKeyDown(e) {
         // Alt + C 키 조합으로 댓글 토글
         if (e.altKey && e.code === 'KeyC') {
-            console.log("단축키 (Alt+C) 입력됨");
+            debugLog("단축키 (Alt+C) 입력됨");
             toggleComments();
+            
+            // 이벤트 버블링 방지
+            e.preventDefault();
+            e.stopPropagation();
         }
     }
 
-    // 페이지 변경 감지를 위한 MutationObserver 설정
+    // 페이지 변경 감지를 위한 MutationObserver 설정 (성능 최적화)
     function setupMutationObserver() {
+        if (observerActive) return; // 이미 활성화되어 있으면 중복 설정 방지
+        
+        observerActive = true;
+        debugLog("MutationObserver 설정");
+        
         const observer = new MutationObserver(function(mutations) {
-             // 간단한 디바운싱: 짧은 시간 내 여러 번 호출 방지
+            // 간단한 디바운싱: 짧은 시간 내 여러 번 호출 방지
             clearTimeout(observer.debounceTimer);
             observer.debounceTimer = setTimeout(() => {
-                 checkForUrlChange();
+                checkForUrlChange();
+                
                 // 댓글 UI를 다시 찾아 숨기기 (동적 로딩 대응)
                 if (window.location.href.includes('/watch') && commentsHidden && initialized) {
-                    attemptHideComments();
+                    // 댓글 섹션이 다시 표시되었는지 확인
+                    const commentsSection = findCommentsSection();
+                    if (commentsSection && commentsSection.style.display !== 'none') {
+                        debugLog("댓글 섹션이 다시 표시됨, 재숨김 시도");
+                        hideComments();
+                    }
                 }
-             }, 100);
+            }, 100);
         });
 
-        // 페이지 변경 감지를 위해 body 전체를 감시
-        observer.observe(document.body, {
+        // 효율적인 관찰을 위해 특정 요소만 관찰
+        const observeTarget = document.body;
+        
+        // 변경 감지 옵션 최적화
+        const observerConfig = {
             childList: true,
-            subtree: true
+            subtree: true,
+            attributeFilter: ['style', 'class'], // 스타일과 클래스 변경만 감시
+            attributeOldValue: false,
+            characterData: false
+        };
+        
+        // 관찰 시작
+        observer.observe(observeTarget, observerConfig);
+        
+        // 페이지 언로드 시 정리
+        window.addEventListener('beforeunload', () => {
+            observer.disconnect();
+            observerActive = false;
         });
     }
 
     // 유튜브 이벤트 핸들러 설정 (더 안정적인 방식)
     function setupYoutubeEvents() {
+        debugLog("유튜브 이벤트 핸들러 설정");
+        
         // YouTube의 자체 이벤트 활용 (페이지 변경 감지)
+        document.addEventListener('yt-navigate-start', (event) => {
+            debugLog('yt-navigate-start 이벤트 감지');
+            // 네비게이션 시작 전 기존 상태 초기화
+            initialized = false;
+        });
+        
         document.addEventListener('yt-navigate-finish', (event) => {
-            console.log('yt-navigate-finish 이벤트 감지');
+            debugLog('yt-navigate-finish 이벤트 감지');
             setTimeout(checkForUrlChange, 100); // 약간의 지연 후 URL 변경 확인
         });
 
         document.addEventListener('yt-page-data-updated', (event) => {
-             console.log('yt-page-data-updated 이벤트 감지');
-             // 데이터 업데이트 후 초기화 시도
-             if (window.location.href.includes('/watch') && !initialized) {
-                 setTimeout(initOnVideoPage, 100);
-             }
+            debugLog('yt-page-data-updated 이벤트 감지');
+            // 데이터 업데이트 후 초기화 시도
+            if (window.location.href.includes('/watch') && !initialized) {
+                setTimeout(initOnVideoPage, 200);
+            }
+        });
+        
+        // 비디오 로드 이벤트도 캡처 (중요)
+        document.addEventListener('yt-player-updated', (event) => {
+            debugLog('yt-player-updated 이벤트 감지');
+            if (window.location.href.includes('/watch') && !initialized) {
+                setTimeout(initOnVideoPage, 300);
+            }
         });
     }
 
-    // 기본 초기화 함수
+    // DOM 변경 감지 대안 (history API 모니터링)
+    function setupHistoryWatcher() {
+        debugLog("History API 모니터링 설정");
+        
+        // 원본 함수 백업
+        const originalPushState = history.pushState;
+        const originalReplaceState = history.replaceState;
+        
+        // 함수 오버라이드
+        history.pushState = function() {
+            originalPushState.apply(this, arguments);
+            debugLog('history.pushState 감지');
+            setTimeout(checkForUrlChange, 100);
+        };
+        
+        history.replaceState = function() {
+            originalReplaceState.apply(this, arguments);
+            debugLog('history.replaceState 감지');
+            setTimeout(checkForUrlChange, 100);
+        };
+        
+        // popstate 이벤트 리스너 (뒤로/앞으로 버튼 클릭)
+        window.addEventListener('popstate', () => {
+            debugLog('popstate 이벤트 감지');
+            setTimeout(checkForUrlChange, 100);
+        });
+    }
+
+    // 기본 초기화 함수 (개선 버전)
     function init() {
-        console.log("스크립트 초기화 시작");
-        // MutationObserver는 항상 활성화하여 URL 변경 감지
+        debugLog("스크립트 초기화 시작");
+        
+        // 유튜브가 SPA(Single Page Application)이므로 여러 방식으로 페이지 변경 감지
         setupMutationObserver();
         setupYoutubeEvents();
+        setupHistoryWatcher();
+        
+        // 페이지 가시성 변경 시 체크 (탭 전환 후 돌아왔을 때)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                debugLog('페이지 가시성 변경: 표시됨');
+                checkForUrlChange();
+                
+                // 동영상 페이지에 있고 초기화되지 않았으면 초기화 시도
+                if (window.location.href.includes('/watch') && !initialized) {
+                    setTimeout(initOnVideoPage, 300);
+                }
+            }
+        });
 
         // 페이지 로드 시 즉시 확인
         checkForUrlChange();
+        
+        // YouTube가 이미 로드된 상태라면 바로 초기화
+        if (document.readyState === 'complete' && window.location.href.includes('/watch')) {
+            setTimeout(initOnVideoPage, 500);
+        }
     }
 
     // 스크립트 초기화 함수 - document ready 또는 DOMContentLoaded 이벤트 발생 시 호출
     function initializeScript() {
         try {
+            debugLog("스크립트 초기화 함수 호출됨");
             init();
         } catch (e) {
             console.error('초기화 중 오류가 발생했습니다:', e);
@@ -382,17 +583,26 @@
         // 이미 로드된 경우 바로 초기화
         setTimeout(initializeScript, 0);
     }
+    
+    // 백업: 윈도우 로드 이벤트 리스너
+    window.addEventListener('load', () => {
+        debugLog("윈도우 로드 이벤트 발생");
+        // 혹시 아직 초기화되지 않았다면 다시 시도
+        if (window.location.href.includes('/watch') && !initialized) {
+            setTimeout(initOnVideoPage, 800);
+        }
+    });
 
     // 토글 버튼 생성 함수
     function createToggleButton() {
-        console.log("토글 버튼 생성 시도...");
+        debugLog("토글 버튼 생성 시도...");
         // 이미 버튼 컨테이너가 있는지 확인
         if (document.getElementById('yt-comments-toggle-container')) {
-             console.log("버튼 컨테이너가 이미 존재합니다.");
-             const container = document.getElementById('yt-comments-toggle-container');
-             container.style.display = 'flex'; // 혹시 숨겨져 있다면 다시 표시
-             buttonCreated = true;
-             return container.querySelector('#toggle-comments-button');
+            debugLog("버튼 컨테이너가 이미 존재합니다.");
+            const container = document.getElementById('yt-comments-toggle-container');
+            container.style.display = 'flex'; // 혹시 숨겨져 있다면 다시 표시
+            buttonCreated = true;
+            return container.querySelector('#toggle-comments-button');
         }
 
         // 버튼 컨테이너 생성 - 드래그 가능하게 함
@@ -441,6 +651,7 @@
             this.style.backgroundColor = '#272727';
             this.style.transform = 'scale(1.03)';
         });
+        
         button.addEventListener('mouseout', function() {
             this.style.backgroundColor = '#0F0F0F';
             this.style.transform = 'scale(1)';
@@ -475,6 +686,7 @@
         container.addEventListener('mouseenter', function() {
             dragHandle.style.opacity = '1';
         });
+        
         container.addEventListener('mouseleave', function() {
             if (!isDragging) {
                 dragHandle.style.opacity = '0';
@@ -482,7 +694,7 @@
                 const settingsPanel = document.getElementById('yt-comments-settings-panel');
                 if (!settingsPanel || settingsPanel.style.display === 'none') {
                     const settingsButton = document.getElementById('yt-comments-settings-button');
-                     if (settingsButton) settingsButton.style.opacity = '0';
+                    if (settingsButton) settingsButton.style.opacity = '0';
                 }
             }
         });
@@ -523,6 +735,7 @@
         settingsButton.addEventListener('mouseover', function() {
             this.style.color = '#FFFFFF';
         });
+        
         settingsButton.addEventListener('mouseout', function() {
             this.style.color = '#AAAAAA';
         });
@@ -545,7 +758,7 @@
 
         document.body.appendChild(container);
         buttonCreated = true;
-        console.log("토글 버튼 생성 완료");
+        debugLog("토글 버튼 생성 완료");
         return button;
     }
 
@@ -623,6 +836,31 @@
         resetPositionDiv.appendChild(resetLabel);
         resetPositionDiv.appendChild(resetButton);
 
+        // 디버그 모드 토글 (개발자용)
+        const debugModeDiv = document.createElement('div');
+        debugModeDiv.style.display = 'flex';
+        debugModeDiv.style.alignItems = 'center';
+        debugModeDiv.style.justifyContent = 'space-between';
+        debugModeDiv.style.marginTop = '10px';
+
+        const debugLabel = document.createElement('span');
+        debugLabel.textContent = '디버그 모드';
+        debugLabel.style.fontSize = '12px';
+
+        const debugToggle = document.createElement('input');
+        debugToggle.type = 'checkbox';
+        debugToggle.checked = DEBUG_MODE;
+        debugToggle.style.cursor = 'pointer';
+
+        debugToggle.addEventListener('change', function() {
+            // 이 함수는 전역 DEBUG_MODE 변수를 직접 수정할 수 없으므로 
+            // 실제로는 작동하지 않지만 개발자를 위한 시각적 피드백으로 유지
+            debugLog(`디버그 모드 ${this.checked ? '활성화' : '비활성화'} 시도 (앱 재시작 필요)`);
+        });
+
+        debugModeDiv.appendChild(debugLabel);
+        debugModeDiv.appendChild(debugToggle);
+
         // 단축키 정보
         const shortcutDiv = document.createElement('div');
         shortcutDiv.style.marginTop = '10px';
@@ -643,6 +881,50 @@
         shortcutDiv.appendChild(shortcutLabel);
         shortcutDiv.appendChild(shortcutInfo);
 
+        // 새로고침 버튼
+        const refreshDiv = document.createElement('div');
+        refreshDiv.style.display = 'flex';
+        refreshDiv.style.alignItems = 'center';
+        refreshDiv.style.justifyContent = 'space-between';
+        refreshDiv.style.marginTop = '10px';
+
+        const refreshLabel = document.createElement('span');
+        refreshLabel.textContent = '스크립트 새로고침';
+        refreshLabel.style.fontSize = '12px';
+
+        const refreshButton = document.createElement('button');
+        refreshButton.textContent = '새로고침';
+        refreshButton.style.padding = '4px 8px';
+        refreshButton.style.backgroundColor = '#3EA6FF';
+        refreshButton.style.border = 'none';
+        refreshButton.style.borderRadius = '4px';
+        refreshButton.style.cursor = 'pointer';
+        refreshButton.style.fontSize = '12px';
+        refreshButton.style.fontWeight = 'bold';
+
+        refreshButton.addEventListener('click', function() {
+            debugLog("스크립트 수동 새로고침");
+            // 스크립트 상태 초기화
+            initialized = false;
+            attempts = 0;
+            
+            // UI 요소 재설정
+            const button = document.getElementById('toggle-comments-button');
+            if (button) {
+                button.innerHTML = '';
+                button.appendChild(createCommentIcon());
+                button.appendChild(document.createTextNode(' 댓글 표시'));
+            }
+            
+            // 초기화 프로세스 재시작
+            if (window.location.href.includes('/watch')) {
+                initOnVideoPage();
+            }
+        });
+
+        refreshDiv.appendChild(refreshLabel);
+        refreshDiv.appendChild(refreshButton);
+
         // 버전 정보
         const versionDiv = document.createElement('div');
         versionDiv.style.marginTop = '15px';
@@ -650,11 +932,13 @@
         versionDiv.style.color = '#AAAAAA';
         versionDiv.style.textAlign = 'center';
         // GM_info를 안전하게 사용 (존재하지 않을 경우 대비)
-        const scriptVersion = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '알 수 없음';
-        versionDiv.textContent = '유튜브 댓글 토글 v' + scriptVersion; // 스크립트 헤더에서 버전 가져오기
+        const scriptVersion = (typeof GM_info !== 'undefined' && GM_info.script) ? GM_info.script.version : '1.3.0';
+        versionDiv.textContent = '유튜브 댓글 토글 v' + scriptVersion;
 
         // 컨테이너에 설정 항목들 추가
         settingsContainer.appendChild(resetPositionDiv);
+        settingsContainer.appendChild(refreshDiv);
+        settingsContainer.appendChild(debugModeDiv);
         settingsContainer.appendChild(shortcutDiv);
         settingsContainer.appendChild(versionDiv);
 
@@ -728,4 +1012,4 @@
         }
     }
 
-})(); 
+})();
