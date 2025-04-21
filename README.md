@@ -1,9 +1,5 @@
 # YTCommentToggle
 유튜브 댓글을 기본적으로 숨기고 토글 버튼으로 표시/숨기기 할 수 있음 [제작: 클로드 소넷 3.7 Thinking]<br><br>
-**URL을 복사해서 빠르게 설치:**
-```
-https://raw.githubusercontent.com/Lucille-dolce/YTCommentToggle/main/youtube-comments-toggle.js
-```
 
 ## 작성자 코멘트 (v 1.4.0)
 - 페이지에서 댓글창이 영상 하단에 나타나는 레이아웃에 한해 정상작동하는 것을 확인
